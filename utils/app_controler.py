@@ -63,7 +63,12 @@ class AppAutomation:
 
         try:
             parent = element if element else self.main_window
+
+            if isinstance(parent, UIAWrapper):
+                parent = self.app.window(handle=parent.handle)
+
             element_spec = parent.child_window(**criteria)
+
             if element_spec.exists(timeout=timeout, retry_interval=retry_interval):
                 
                 # Perform optional action
@@ -80,8 +85,6 @@ class AppAutomation:
             raise RuntimeError(f"Failed to find element: {e}") from e
 
 
-
-    
     def wait_until_element_present(self, control_type: str, automation_id: str = None, name: str = None,
                                 retries: int = 3, single_attempt_timeout: int = 1, retry_interval: int = 1):
         """

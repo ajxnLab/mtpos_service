@@ -1,12 +1,13 @@
+import re
+import utils.helpers
 from config.env_config import get_env_variable
 from utils.app_controler import AppAutomation
-import re
 from utils.helpers import wait
 from utils.logger import log_traceback,finalize_log_upload,attach_drive_client,setup_in_memory_logger
-import utils.helpers
 from matcode_mtpos.mtpos_constant import MTPOS_Constants
 from matcode_mtpos.mtpos_inventory import MtposInventory
 from utils.google_sheet import GSheetClient
+from pywinauto.keyboard import send_keys
 
 
 
@@ -17,7 +18,7 @@ mtpos = MTPOS_Constants()
 logger,log_stream = setup_in_memory_logger(service_name=mtpos.SERVICE_NAME)
 
 class Mtpos_Service:
-    def __init__(self):
+    def __init__(self, variable = None):
 
         # Google Sheets client
         gsheet_credential = get_env_variable("GOOGLE_SERVICE_ACCOUNT")
@@ -38,9 +39,8 @@ class Mtpos_Service:
         self.APP_PATH_GT = get_env_variable("APP_PATH_MTPOS_GT")
         self.APP_PATH_PD = get_env_variable("APP_PATH_MTPOS_PD")
 
-        self.proceed_to_publish = None
+        self.proceed_to_publish = variable
 
-      
 
     def run(self):
         logger.info(">>> Starting MTPOS process sequence")
@@ -64,8 +64,7 @@ class Mtpos_Service:
 
             for row_procedure in filtered_app_type:
                 
-                
-
+            
                 logger.info(f"Retrieved {len(self.data)} rows from sheet '{self.sheet_tab_sor}'")
 
                 filtered_data_process = []
@@ -215,31 +214,26 @@ class Mtpos_Service:
 
         logger.info(f"Redirecting to Inventory Tab") 
 
-        self.bot.wait_until_element_present(name="Inventory", control_type="TabItem")
+        element = self.bot.wait_until_element_present(name="Inventory", control_type="TabItem")
 
-        self.bot.find_element(name="Inventory", control_type="TabItem", action = "click") 
+        self.bot.send_keys_to("%ii", element=element)
 
-        self.bot.find_element_in_parent(
-            parent_name="Catalog",
-            child_name="Inventory",
-            child_control_type="Button",
-            parent_control_type = "ToolBar",
-            action = "click"
-        )
         self.bot.wait_until_element_present(automation_id="frmInventoryNew", control_type="Window", retries=5, single_attempt_timeout=60, retry_interval=0)
         # NEW: switch to the new window that pops up
         new_window = self.bot.get_window_by_title(title_re="^Inventory -.*$")
 
         if new_window:
+            all_items = False
             self.bot.main_window = new_window
             logger.info("Switched to Inventory window")
-            proc = MtposInventory(self.bot, self.gs, self.data)
+            proc = MtposInventory(self.bot, self.gs, self.data,all_items)
 
             if self.proceed_to_publish:
  
                 proc.run_publish_to_all(app_name,success_def_only, self.creds_row)
 
             else:
+                
                 for row in filtered_data:
                     procedure = row.get("Procedure", None)
                     material_description = row.get("Material Description", None)
@@ -262,10 +256,11 @@ class Mtpos_Service:
                                 logger.info("Continuing to next material code...")
                     else:
                         logger.warning("No 'Procedure' value found in row")
-                 
-                filtered_data_publish = (filtered_data or []) + (success_def_only or [])
-                logger.info(filtered_data_publish)       
-                proc.run_publish_to_all(app_name,filtered_data_publish, self.creds_row)
+
+                if self.proceed_to_publish: 
+                    filtered_data_publish = (filtered_data or []) + (success_def_only or [])
+                    logger.info(filtered_data_publish)       
+                    proc.run_publish_to_all(app_name,filtered_data_publish, self.creds_row)
        
         else:
             logger.error("Inventory window not found")
@@ -317,32 +312,24 @@ class Mtpos_Service:
             if main_window:
                 logger.info("Switched back to MT-POS ENT main window")
                 self.bot.main_window = main_window
+                self.bot.main_window.set_focus()
 
                 try:
-                    self.bot.find_element_in_parent(
-                            parent_control_type="ToolBar",
-                            child_control_type="Button", 
-                            parent_name="Quick Access Toolbar",
-                            child_name="Logout", 
-                            action="click",
-                            visible_only=True)
+                    element = self.bot.wait_until_element_present(name="Inventory", control_type="TabItem")
+                    self.bot.send_keys_to("%", element=element)
+                    self.bot.send_keys_to("lg", element=element)
                     self.bot.wait_until_element_present(name="Logout", control_type="Window")
                     self.bot.find_element(name="Yes", control_type="Button", action="click")
                     self.bot.wait_until_element_present(automation_id="frmLogin", control_type="Window")
 
                     # Handle post-logout security/cancel buttons gracefully
-                    sec_ok = self.bot.find_element(automation_id="SecurtyWarningOkBut", control_type="Button", action="click")
+                    sec_ok = self.bot.find_element(automation_id="SecurityWarningExitBut", control_type="Button", action="click")
                     if sec_ok:
-                        logger.info("Clicked 'Security Warning OK' after logout")
+                        logger.info("Clicked 'Security Warning EXIT' after logout")
                     else:
                         logger.info("'Security Warning OK' button not found; skipping")
 
-                    cmd_cancel = self.bot.find_element(automation_id="cmdCancel", control_type="Button", action="click")
-                    if cmd_cancel:
-                        logger.info("Clicked 'Exit' on login screen after logout")
-                    else:
-                        logger.info("'Exit' button not found; skipping")
-                        raise
+                    send_keys("{ENTER}")
 
                 except Exception as e_inner:
                     logger.warning(f"Partial failure during main window logout actions: {e_inner}")

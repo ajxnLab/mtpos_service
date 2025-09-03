@@ -1,5 +1,5 @@
 import time
-import concurrent.futures
+import win32gui
 from pywinauto import Application, Desktop
 from utils.logger import setup_in_memory_logger
 from matcode_mtpos.mtpos_constant import MTPOS_Constants
@@ -115,18 +115,17 @@ def find_element_with_index(
         variable=None,
         action=None,
         search_descendants: bool = True,
-        element=None
     ):
     """
     Finds a UI element by control_type and optional automation_id / name.
     If multiple matches exist, select one by found_index (default = 0).
     """
     try:
-        # 1. Pick search parent
-        parent = element if element else main_window
         # Collect matching elements
-        candidates = parent.descendants(control_type=control_type) if search_descendants \
-            else parent.children(control_type=control_type)
+        if search_descendants:
+            candidates = main_window.descendants(control_type=control_type)
+        else:
+            candidates = main_window.children(control_type=control_type)
 
         # Filter by automation_id
         if automation_id:
@@ -156,7 +155,7 @@ def find_element_with_index(
         elif len(candidates) > 1:
             logger.info("No found_index specified, defaulting to index 0")
 
-        #Only call wait() if it's a WindowSpecification
+        # ✅ Only call wait() if it's a WindowSpecification
         if isinstance(element, WindowSpecification):
             element.wait("exists ready", timeout=timeout, retry_interval=retry_interval)
         else:
@@ -340,51 +339,6 @@ def clear_all(child_name):
     wait(0.3)
     send_keys('^+a{BACKSPACE}')
 
-def extract_text(row):
-    uia_elem = row.element_info.element
-    raw_value = safe_get_value(uia_elem)
-    if raw_value:
-        return raw_value.split(";")  # split into columns
-    return []
-
-def extract_all_rows(data_panel, scrollbar, max_scrolls=100):
-    """
-    Extract all rows from a virtualized table by scrolling until all unique rows are collected.
-    
-    Args:
-        data_panel: pywinauto wrapper for the Custom Data Panel (row container)
-        scrollbar: pywinauto wrapper for the vertical scrollbar
-        max_scrolls: safety limit to prevent infinite loops
-    
-    Returns:
-        list of row strings
-    """
-    seen = set()
-    all_rows = []
-
-    for i in range(max_scrolls):
-        # --- read visible rows ---
-        rows = data_panel.children()
-        for row in rows:
-            try:
-                value = safe_get_value(row.element_info.element)
-                if value and value not in seen:
-                    seen.add(value)
-                    all_rows.append(value)
-            except Exception:
-                continue
-
-        # --- try to scroll down ---
-        try:
-            page_down = scrollbar.child_window(title="Page Down", control_type="Button")
-            page_down.click_input()
-        except Exception:
-            break  # no more scrolling possible
-
-        time.sleep(0.3)  # give UI time to refresh
-
-    return all_rows
-
 try:
     # Connect to the top-level Coupon List window
     app = Application(backend="uia").connect(title_re="^Inventory -.*$")
@@ -442,46 +396,79 @@ try:
             }
         ]
 
-        find_element_in_parent(
-                    child_control_type="Button",
-                    child_automation_id="cmdSearch",
-                    action="click",
-                    element = promotion_window,
-                    main_window=main_window,
-                    search_descendants=True
-                )
-
-        table = find_element_in_parent(
-                    child_control_type="Custom",
-                    child_name="Data Panel",
-                    action="find",
-                    element = promotion_window,
-                    main_window=main_window,
-                    search_descendants=True
-                )
         
-        scrollbar = find_element_with_index(
-                    main_window=main_window,
-                    control_type="ScrollBar",
-                    action="find",
-                    found_index=1,
-                    search_descendants=True 
+        for row in filtered_sorted_data:
+            matcode = row.get("Material Code")
+            desc = row.get("Material Description").strip()
+
+            # Step 1: type item code in filter
+            for action in [
+                ("click"),
+                ("send_type"),
+            ]:
+                find_element_in_parent(
+                parent_control_type="Custom",
+                child_control_type="DataItem", 
+                parent_name="Filter Row",
+                child_name="Item Code row -2147483646", 
+                action=action,
+                variable=matcode
                 )
-        
-        all_rows = extract_all_rows(table, scrollbar)
 
-        print("Total rows collected:", len(all_rows))
-        for r in all_rows:
-            print(r)
-                
-        """  
-        rows = [r for r in table.children() if r.element_info.control_type == "Custom"]
+            # Step 2: try find Select row 0
+            element = find_element_in_parent(
+                parent_control_type="Custom",
+                child_control_type="DataItem", 
+                parent_name="Row 1",
+                child_name="Select row 0", 
+                action="find"
+            )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            results = list(executor.map(extract_text, rows))
+            if element:
+                find_element_in_parent(
+                parent_control_type="Custom",
+                child_control_type="DataItem", 
+                parent_name="Row 1",
+                child_name="Select row 0", 
+                action="click"
+                )
 
-        for row_data in results:
-            print(row_data) """
+                # Item code exists, no need to type description
+                # Clear filter row
+                clear_all("Item Code row -2147483646")
+
+                continue  # skip to next row
+
+            # Not found by Item Code → now add description filter to help find
+            # Double-click to clear item code filter
+            clear_all("Item Code row -2147483646")
+
+            # Type description
+            for action in [
+                ("click"),
+                ("send_type"),
+            ]:
+                find_element_in_parent(
+                parent_control_type="Custom",
+                child_control_type="DataItem", 
+                parent_name="Filter Row",
+                child_name="Description row -2147483646", 
+                action=action,
+                variable=desc
+                )
+
+            # Step 3: click to confirm row
+            find_element_in_parent(
+                parent_control_type="Custom",
+                child_control_type="DataItem", 
+                parent_name="Row 1",
+                child_name="Select row 0", 
+                action="click"
+            )
+
+            # Finally clear description filter
+            clear_all("Description row -2147483646")
+
 
     else:
         print("Promotion window not found")

@@ -7,7 +7,7 @@ class MTPOS_Constants:
 
     MATERIAL_CODE = "Material Code"
 
-    app_type = {"GT"}
+    app_type = {"GT" , "PD"}
 
     SUPPLIER = "BAX PHONEKITTING #15010"
 

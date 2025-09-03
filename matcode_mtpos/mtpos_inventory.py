@@ -13,11 +13,12 @@ logger,log_stream = setup_in_memory_logger("MTPOS")
 
 class MtposInventory:
 
-    def __init__(self, bot, gs, data):
+    def __init__(self, bot, gs, data, all_items):
 
         self.bot = bot
         self.gs = gs
         self.data = data
+        self.all_items = all_items
 
 
     def run_create(self,row, app_name):
@@ -33,8 +34,16 @@ class MtposInventory:
         try:
             logger.info(f"Adding MTPOS Material code {material_code}")
             self.bot.find_element(name="Catalog Def", control_type="TabItem", action="click")
+            parent_element_add = self.bot.wait_until_element_present(automation_id="PanelRight", control_type="Pane", retries=3, single_attempt_timeout=60, retry_interval=0)
             #Add item
-            self.bot.find_element(automation_id="cmdAdd", control_type="Button", action="click")
+            #self.bot.find_element(automation_id="cmdAdd", control_type="Button", action="click")
+            self.bot.find_element_in_parent(
+                child_control_type="Button",
+                child_automation_id="cmdAdd",
+                action="click",
+                element = parent_element_add,
+                search_descendants = True 
+            )
             element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window",single_attempt_timeout = 1,retries= 2)
 
             if element:
@@ -46,19 +55,35 @@ class MtposInventory:
                     action="click")
             else:
                 send_keys('{ESC}')
+
+            element_add =  self.bot.find_element_in_parent(
+                child_control_type="Tab",
+                child_automation_id="xtbCtrlRight",
+                action="find",
+                element = parent_element_add,
+                search_descendants = True 
+            )
             
-            for parent_id, variable in [
-            ("cboCatDX0", category),
-            ("cboCatDX1", subcategory),
-            ("txtSearch", mtpos.SUPPLIER)
-               ]:
+            for variable, found_index in [
+            (category, 21),
+            (subcategory, 19),
+            (mtpos.SUPPLIER, 23)
+               ]:        
+                element_1 = self.bot.find_element_with_index(
+                    control_type="Edit",
+                    action="find",
+                    found_index=found_index,
+                    search_descendants=True 
+                )
+
                 self.bot.find_element_in_parent(
-                    parent_control_type="Edit",
-                    child_control_type="Button", 
-                    parent_automation_id=parent_id,
+                    child_control_type="Button",
                     child_name="Open", 
+                    element=element_1,
+                    search_descendants=True,
                     action="click"
                 )
+
                 wait(2)
                 element = self.bot.find_element_with_index(
                     control_type="Window",
@@ -83,14 +108,48 @@ class MtposInventory:
                 ("Retail", retail_price),
                 ("ItemDesc", mat_desc)
             ]:
-                    self.bot.find_element(variable = variable,automation_id=auto_id, control_type="Edit", action="sendkeys")
+                   # self.bot.find_element(variable = variable,automation_id=auto_id, control_type="Edit", action="sendkeys")
+
+                    self.bot.find_element_in_parent(
+                    child_control_type="Edit",
+                    child_automation_id=auto_id, 
+                    element=element_add,
+                    search_descendants=True,
+                    action="sendkeys",
+                    variable=variable
+                )
 
             if reqSNEntry == "Y":
-                self.bot.find_element(automation_id="ckReqSNEntry", control_type="CheckBox", action="click")
+                
+                self.bot.find_element_in_parent(
+                    child_control_type="CheckBox",
+                    child_automation_id="ckReqSNEntry", 
+                    element=element_add,
+                    action="click",
+                    search_descendants=True,
+                    timeout=2,
+                    interval=1
+                )
+                
+                #self.bot.find_element(automation_id="ckReqSNEntry", control_type="CheckBox", action="click")
 
-            self.bot.find_element(variable = "0",automation_id="SNLength", control_type="Edit", action="sendkeys")
-
-            self.bot.find_element(automation_id="cmdUpdate", control_type="Button", action="click")
+            #self.bot.find_element(variable = "0",automation_id="SNLength", control_type="Edit", action="sendkeys")
+            self.bot.find_element_in_parent(
+                    child_control_type="Edit",
+                    child_automation_id="SNLength", 
+                    element=element_add,
+                    action="sendkeys",
+                    search_descendants=True,
+                    variable = "0"
+                )
+            self.bot.find_element_in_parent(
+                    child_control_type="Button",
+                    child_automation_id="cmdUpdate", 
+                    element=parent_element_add,
+                    search_descendants=True,
+                    action="click"
+                )
+            #self.bot.find_element(automation_id="cmdUpdate", control_type="Button", action="click")
 
             element = self.bot.wait_until_element_present(name="MT.Main.v5", control_type="Window",single_attempt_timeout = 1,retries= 1)
             if element:
@@ -109,17 +168,37 @@ class MtposInventory:
                 #Mark failure and raise to proceed to next
                 raise Exception(f"Material code {material_code} is already defined; skipping to next")
 
-            self.bot.find_element(name="Options", control_type="TabItem", action="click")
+            #self.bot.find_element(name="Options", control_type="TabItem", action="click")
+            self.bot.find_element_in_parent(
+                    child_control_type="TabItem",
+                    child_name="Options", 
+                    element=element_add,
+                    action="click",
+                    search_descendants=True
+                )
+            
+            self.bot.find_element_in_parent(
+                    child_control_type="Button",
+                    child_automation_id="cmdEdit", 
+                    element=parent_element_add,
+                    action="click",
+                    search_descendants=True
+                )
 
-            self.bot.find_element(automation_id="cmdEdit", control_type="Button", action="click")
+            #self.bot.find_element(automation_id="cmdEdit", control_type="Button", action="click")
 
-            for name in [
-                    ("Right Trim S/N to specified length").strip(),
-                    ("Retail Price Include the Tax").strip(),
-                    ("Require S/N on Sale").strip()
-                ]:
-                    
-                    pane = self.bot.find_element(name=name, control_type="ListItem", action="click")
+            for name, found_index in [
+                ("Right Trim S/N to specified length", 10),
+                ("Retail Price Include the Tax", 5),
+                ("Require S/N on Sale", 11),
+            ]:
+                    pane = self.bot.find_element_with_index(
+                        control_type="ListItem",
+                        action="click",
+                        found_index=found_index,
+                        search_descendants=True 
+                    )
+                    #pane = self.bot.find_element(name=name, control_type="ListItem", action="click")
                     pane.set_focus()
                     send_keys('{SPACE}')
                     element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window",single_attempt_timeout = 1,retries= 2)
@@ -169,12 +248,15 @@ class MtposInventory:
         description = row.get("Material Description")
         identifier_column = mtpos.MATERIAL_CODE
 
+        
+
         try:
             logger.info(f"Searching MTPOS Material code {material_code}")
 
              #Add item
-            self.bot.find_element(name="Catalog Def", control_type="TabItem", action="click")
-            element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window",single_attempt_timeout = 1,retries= 2)
+            parent_element = self.bot.wait_until_element_present(automation_id="Frame1", control_type="Pane", retries=3, single_attempt_timeout=60, retry_interval=0)
+            #self.bot.find_element(name="Catalog Def", control_type="TabItem", action="click")
+            element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window", retries=1, single_attempt_timeout=2, retry_interval=0)
 
             if element:
                 self.bot.find_element_in_parent(
@@ -187,13 +269,45 @@ class MtposInventory:
                 send_keys('{ESC}')
 
             # Search for item
-            element_1 = self.bot.wait_until_element_present(name="All Items", control_type="Edit",single_attempt_timeout = 1,retries= 2)
-            if not element_1:
-                self.bot.find_element(variable="All Items", control_type="Edit", automation_id="cboSearchIn2", action="send_type")
-            self.bot.find_element(variable=material_code, control_type="Edit", automation_id="teFind", action="sendkeys")
-            self.bot.find_element(automation_id="cmdRefreshInv", control_type="Button", action="click")
+            if not self.all_items:
+                self.bot.find_element_in_parent(
+                                child_control_type="Edit",
+                                child_automation_id="cboSearchIn2",
+                                action="send_type",
+                                element = parent_element,
+                                search_descendants = True,
+                                variable="All Items"
+                            )
+                self.all_items = True
 
-            element = self.bot.wait_until_element_present(name="Row 1", control_type="Custom")
+            #self.bot.find_element(variable="All Items", control_type="Edit", automation_id="cboSearchIn2", action="send_type")
+            self.bot.find_element_in_parent(
+                            child_control_type="Edit",
+                            child_automation_id="teFind",
+                            action="sendkeys",
+                            element = parent_element,
+                            search_descendants = True,
+                            variable=material_code
+                        )
+            self.bot.find_element_in_parent(
+                            child_control_type="Button",
+                            child_automation_id="cmdRefreshInv",
+                            action="click",
+                            element = parent_element
+                        )
+            #self.bot.perform_action(parent_element, "send_type", "All Items")
+            #self.bot.find_element(variable=material_code, control_type="Edit", automation_id="teFind", action="sendkeys")
+            #self.bot.find_element(automation_id="cmdRefreshInv", control_type="Button", action="click")
+
+            element = self.bot.find_element_in_parent(
+                            child_control_type="Custom",
+                            child_name="Row 1",
+                            action="find",
+                            element = parent_element,
+                            search_descendants = True 
+                        )
+
+            #element = self.bot.wait_until_element_present(name="Row 1", control_type="Custom", retries=3, single_attempt_timeout=60, retry_interval=0)
             if not element:
                 logger.warning(f"MTPOS Material code {material_code} not found in UI")
 
@@ -213,18 +327,50 @@ class MtposInventory:
             logger.info(f"MTPOS Material code {material_code} found; editing MSRP and Retail Price")
 
             #Edit item
-            self.bot.find_element(automation_id="cmdEdit", control_type="Button", action="click")
+            parent_element_edit = self.bot.wait_until_element_present(automation_id="PanelRight", control_type="Pane", retries=3, single_attempt_timeout=60, retry_interval=0)
+
+            self.bot.find_element_in_parent(
+                            child_control_type="Button",
+                            child_automation_id="cmdEdit",
+                            action="click",
+                            element = parent_element_edit,
+                            search_descendants = True 
+                        )
+            
+            #self.bot.find_element(automation_id="cmdEdit", control_type="Button", action="click")
             if procedure == "update-srp":
-                self.bot.wait_until_element_present(automation_id="FaceValue", control_type="Edit")
+                parent_element_update=self.bot.find_element_in_parent(
+                            child_control_type="Pane",
+                            child_automation_id="_DataFrame_0",
+                            action="find",
+                            element = parent_element_edit,
+                            search_descendants = True 
+                        )
+                #self.bot.wait_until_element_present(automation_id="FaceValue", control_type="Edit")
 
-                self.bot.find_element(variable=retail_price, control_type="Edit", automation_id="FaceValue", action="sendkeys")
-                self.bot.find_element(variable=retail_price, control_type="Edit", automation_id="Retail", action="sendkeys")
+                self.bot.find_element(variable=retail_price, control_type="Edit", element=parent_element_update, automation_id="FaceValue", action="sendkeys")
+                self.bot.find_element(variable=retail_price, control_type="Edit",  element=parent_element_update,automation_id="Retail", action="sendkeys")
 
-                self.bot.find_element(automation_id="cmdUpdate", control_type="Button", action="click")
+                self.bot.find_element_in_parent(
+                    child_control_type="Button",
+                    child_automation_id="cmdUpdate",
+                    action="click",
+                    element = parent_element_edit,
+                    search_descendants = True 
+                )
+
+                #self.bot.find_element(automation_id="cmdUpdate", control_type="Button", element=parent_element_update, action="click")
             else:
 
-                self.bot.find_element(variable=description, control_type="Edit", automation_id="ItemDesc", action="sendkeys")
-                self.bot.find_element(automation_id="cmdUpdate", control_type="Button", action="click")
+                self.bot.find_element(variable=description, control_type="Edit", automation_id="ItemDesc", element=parent_element_update, action="sendkeys")
+
+                self.bot.find_element_in_parent(
+                    child_control_type="Button",
+                    child_automation_id="cmdUpdate",
+                    action="click",
+                    element = parent_element_edit,
+                    search_descendants = True 
+                )
 
             logger.info(f"MTPOS Material code {material_code} successfully updated")
 
