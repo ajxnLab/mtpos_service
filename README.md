@@ -14,7 +14,8 @@ Google Sheet Link: https://docs.google.com/spreadsheets/d/1tfKe4EyF0BqqgGAG522Tm
 
 ## Run Service Deployment
 1. Once you've completed installing all the prerequisites. 
-2. Double click 'matcode_run_service.bat' file to start the Matcode Definition.
+2. Double click 'matcode_run_service.bat' file to start the Matcode Definition without publish to all.
+3. Double click 'matcode_run_service_publish' file to start the Matcode Definition and publish to all.
 3. Double click 'promocode_run_service.bat' file to start the Promo Code Definition.
 
 ==========================================================
@@ -40,7 +41,8 @@ Google Sheet Link: https://docs.google.com/spreadsheets/d/1tfKe4EyF0BqqgGAG522Tm
 
 ## Run Service Deployment
 1. Once you've completed installing all the prerequisites. 
-2. Double click 'matcode_run_service.bat' file to start the Matcode Definition.
+2. Double click 'matcode_run_service.bat' file to start the Matcode Definition without publish to all.
+3. Double click 'matcode_run_service_publish' file to start the Matcode Definition and publish to all.
 3. Double click 'promocode_run_service.bat' file to start the Promo Code Definition.
 
 
