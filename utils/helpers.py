@@ -54,8 +54,14 @@ def duration_time(start_time, end_time):
         return None
 
 def data_strip(data):
-    data = [
-        {k.strip(): str(v).strip() for k, v in row.items()}
-        for row in data
-    ]
-    return data
+    cleaned_data = []
+    for row in data:
+        cleaned_row = {}
+        for k, v in row.items():
+            # Handle None keys
+            key = k.strip() if isinstance(k, str) else str(k or "").strip()
+            # Handle None values
+            val = v.strip() if isinstance(v, str) else str(v or "").strip()
+            cleaned_row[key] = val
+        cleaned_data.append(cleaned_row)
+    return cleaned_data   

@@ -2,7 +2,7 @@ import re
 import utils.helpers
 from config.env_config import get_env_variable
 from utils.app_controler import AppAutomation
-from utils.helpers import wait
+from utils.helpers import wait,data_strip
 from utils.logger import log_traceback,finalize_log_upload,attach_drive_client,setup_in_memory_logger
 from matcode_mtpos.mtpos_constant import MTPOS_Constants
 from matcode_mtpos.mtpos_inventory import MtposInventory
@@ -29,7 +29,7 @@ class Mtpos_Service:
         self.sheet_tab = mtpos.WORKSHEET_TAB_CREDENTIAL
         self.creds_data = self.gs.get_sheet_data(self.sheet_tab)
         self.data = self.gs.get_sheet_data(self.sheet_tab_sor)
-        self.data = self.data_strip(self.data)
+        self.data = data_strip(self.data)
         self.creds_row = None
 
         # Start datetime
@@ -39,7 +39,10 @@ class Mtpos_Service:
         self.APP_PATH_GT = get_env_variable("APP_PATH_MTPOS_GT")
         self.APP_PATH_PD = get_env_variable("APP_PATH_MTPOS_PD")
 
-        self.proceed_to_publish = variable
+        self.has_publish = variable
+        self.proceed_to_publish = None
+
+        self.pending_updates = [] 
 
 
     def run(self):
@@ -132,16 +135,21 @@ class Mtpos_Service:
             # End datetime and log duration
             end_time = utils.helpers.get_datetime("full")
             duration = utils.helpers.duration_time(self.start_time, end_time)
-            logger.info(f"Start Time: {self.start_time}")
-            logger.info(f"End Time: {end_time}")
-            logger.info(f"Duration: {duration}")
+
            
         except Exception as e:
             logger.error(f">>> {app_name} process failed: {e}")
             log_traceback(logger, e)
         finally:
+            self.gs.flush_updates(mtpos.WORKSHEET_TAB_SOR, self.pending_updates)
             attach_drive_client(logger, self.gs ,mtpos, log_stream)
-            finalize_log_upload(logger)
+            finalize_log_upload(logger,mtpos.ROOT_LOG_FOLDER_ID)
+            # End datetime and log duration
+            end_time = utils.helpers.get_datetime("full")
+            duration = utils.helpers.duration_time(self.start_time, end_time)
+            logger.info(f"Start Time: {self.start_time}")
+            logger.info(f"End Time: {end_time}")
+            logger.info(f"Duration: {duration}")
             
 
     def login(self, app_name):
@@ -209,7 +217,7 @@ class Mtpos_Service:
         if isinstance(filtered_data, dict):
             filtered_data = [filtered_data]
         names = [row.get("Material Description", "Unnamed") for row in filtered_data]
-        logger.info(f"Material Description: {names}")
+        #Slogger.info(f"Material Description: {names}")
 
 
         logger.info(f"Redirecting to Inventory Tab") 
@@ -226,14 +234,16 @@ class Mtpos_Service:
             all_items = False
             self.bot.main_window = new_window
             logger.info("Switched to Inventory window")
-            proc = MtposInventory(self.bot, self.gs, self.data,all_items)
+
+            
+            proc = MtposInventory(self.bot, self.gs, self.data,all_items,self.pending_updates)
 
             if self.proceed_to_publish:
  
                 proc.run_publish_to_all(app_name,success_def_only, self.creds_row)
 
             else:
-                
+
                 for row in filtered_data:
                     procedure = row.get("Procedure", None)
                     material_description = row.get("Material Description", None)
@@ -257,27 +267,14 @@ class Mtpos_Service:
                     else:
                         logger.warning("No 'Procedure' value found in row")
 
-                if self.proceed_to_publish: 
+                if self.has_publish: 
                     filtered_data_publish = (filtered_data or []) + (success_def_only or [])
-                    logger.info(filtered_data_publish)       
+                    #logger.info(filtered_data_publish)       
                     proc.run_publish_to_all(app_name,filtered_data_publish, self.creds_row)
        
         else:
             logger.error("Inventory window not found")
             raise RuntimeError("Inventory window not found")
-
-    def data_strip(self, data):
-        cleaned_data = []
-        for row in data:
-            cleaned_row = {}
-            for k, v in row.items():
-                # Handle None keys
-                key = k.strip() if isinstance(k, str) else str(k or "").strip()
-                # Handle None values
-                val = v.strip() if isinstance(v, str) else str(v or "").strip()
-                cleaned_row[key] = val
-            cleaned_data.append(cleaned_row)
-        return cleaned_data    
 
     def logout(self):
         logger.info(">>> Starting logout sequence")

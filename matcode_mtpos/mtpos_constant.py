@@ -1,5 +1,5 @@
 class MTPOS_Constants:
-    ROOT_LOG_FOLDER_ID = "1D9_vnexqKhx_fR-ndJ6FisvYno6vPkvD"
+    ROOT_LOG_FOLDER_ID = "1B2DKW8KSYr3Iu9ZbDE2empDcwhQ3BtTZ"
     SERVICE_NAME = "MTPOS_MATCODE"
     WORKSHEET_TAB_CREDENTIAL="MTPOS_Creds"
     WORKSHEET_TAB_SOR = "MatCode_SOR"
@@ -7,7 +7,7 @@ class MTPOS_Constants:
 
     MATERIAL_CODE = "Material Code"
 
-    app_type = {"GT" , "PD"}
+    app_type = {"GT", "PD"}
 
     SUPPLIER = "BAX PHONEKITTING #15010"
 

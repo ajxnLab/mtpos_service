@@ -1,7 +1,8 @@
 import time
 from pywinauto.keyboard import send_keys
 from utils.logger import setup_in_memory_logger
-from utils.helpers import wait
+from utils.helpers import wait,data_strip
+import utils.helpers
 from matcode_mtpos.mtpos_constant import MTPOS_Constants
 
 
@@ -13,12 +14,13 @@ logger,log_stream = setup_in_memory_logger("MTPOS")
 
 class MtposInventory:
 
-    def __init__(self, bot, gs, data, all_items):
+    def __init__(self, bot, gs, data, all_items,pending_updates):
 
         self.bot = bot
         self.gs = gs
         self.data = data
         self.all_items = all_items
+        self.pending_updates = pending_updates
 
 
     def run_create(self,row, app_name):
@@ -29,12 +31,25 @@ class MtposInventory:
         subcategory = row.get("SubCategory")
         retail_price = row.get("Retail Price")
         mat_desc=row.get("Material Description")
-        identifier_column = mtpos.MATERIAL_CODE
+        deploymen_date=row.get("Deployment Date")
+        procedure=row.get("Procedure")
+        
 
         try:
+
+            conditions = {
+                "Material Code": material_code,
+                "Material Description": mat_desc,
+                "Deployment Date": deploymen_date,
+                "Procedure": procedure,
+            }
+            self.result_index = self.gs.find_row_index_multi(self.data, conditions)
+
+            logger.info(f"Index {self.result_index} material code {mat_desc} procedure {procedure} delopyment date {deploymen_date}")
+
             logger.info(f"Adding MTPOS Material code {material_code}")
             self.bot.find_element(name="Catalog Def", control_type="TabItem", action="click")
-            parent_element_add = self.bot.wait_until_element_present(automation_id="PanelRight", control_type="Pane", retries=3, single_attempt_timeout=60, retry_interval=0)
+            parent_element_add = self.bot.wait_until_element_present(automation_id="PanelRight", control_type="Pane", retries=6, single_attempt_timeout=30, retry_interval=1)
             #Add item
             #self.bot.find_element(automation_id="cmdAdd", control_type="Button", action="click")
             self.bot.find_element_in_parent(
@@ -44,18 +59,10 @@ class MtposInventory:
                 element = parent_element_add,
                 search_descendants = True 
             )
-            element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window",single_attempt_timeout = 1,retries= 2)
-
-            if element:
-                self.bot.find_element_in_parent(
-                    parent_control_type="Window",
-                    child_control_type="Button", 
-                    parent_name="Microtelecom",
-                    child_name="OK", 
-                    action="click")
-            else:
-                send_keys('{ESC}')
-
+            #element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window", retries=1, single_attempt_timeout=2, retry_interval=0)
+            wait(1)
+            send_keys('{ESC}')
+            
             element_add =  self.bot.find_element_in_parent(
                 child_control_type="Tab",
                 child_automation_id="xtbCtrlRight",
@@ -91,7 +98,6 @@ class MtposInventory:
                     found_index=0,
                     search_descendants=True 
                 )
-                print("done")
                 self.bot.find_element_in_parent(
                     child_control_type="Custom",
                     child_name="Filter Row", 
@@ -150,24 +156,24 @@ class MtposInventory:
                     action="click"
                 )
             #self.bot.find_element(automation_id="cmdUpdate", control_type="Button", action="click")
-
+            
             element = self.bot.wait_until_element_present(name="MT.Main.v5", control_type="Window",single_attempt_timeout = 1,retries= 1)
             if element:
                 logger.warning(f"Item {material_code} is already defined in location 60001 inventory catalog.")
 
                 # Step 2: Update Google Sheet with "Failed"
-                result = self.gs.find_row_index(self.data, identifier_column, material_code)
-                if result:
-                    row_index = result["row_index"]
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Definition Remarks - {app_name}", "Failed")
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
-                    logger.info(f"Updated GSheet row {row_index} with Failed status")
+                #result = self.gs.find_row_index(self.data, identifier_column, material_code)
+                if self.result_index:
+                    #row_index = result["row_index"]
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index, f"RPA Definition Remarks - {app_name}", "Failed")
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
+                    logger.info(f"Updated GSheet row {self.result_index} with Failed status")
                 else:
                     logger.warning(f"Material code {material_code} not found in filtered data for GSheet update")
 
                 #Mark failure and raise to proceed to next
                 raise Exception(f"Material code {material_code} is already defined; skipping to next")
-
+            logger.info(f"Successfully saved MTPOS material code {material_code}. Moving to Options tab.")
             #self.bot.find_element(name="Options", control_type="TabItem", action="click")
             self.bot.find_element_in_parent(
                     child_control_type="TabItem",
@@ -187,40 +193,41 @@ class MtposInventory:
 
             #self.bot.find_element(automation_id="cmdEdit", control_type="Button", action="click")
 
-            for name, found_index in [
-                ("Right Trim S/N to specified length", 10),
-                ("Retail Price Include the Tax", 5),
-                ("Require S/N on Sale", 11),
+            list_element = self.bot.find_element_in_parent(
+                child_control_type="List",
+                child_automation_id="OptionLV", 
+                element=element_add,
+                action="find",
+                search_descendants=True
+            )
+
+            for name in [
+                ("Right Trim S/N to specified length"),
+                ("Retail Price Include the Tax"),
+                ("Require S/N on Sale"),
             ]:
-                    pane = self.bot.find_element_with_index(
+                    pane = self.bot.find_element(
                         control_type="ListItem",
+                        name = name,
                         action="click",
-                        found_index=found_index,
-                        search_descendants=True 
+                        element=list_element 
                     )
                     #pane = self.bot.find_element(name=name, control_type="ListItem", action="click")
                     pane.set_focus()
                     send_keys('{SPACE}')
-                    element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window",single_attempt_timeout = 1,retries= 2)
 
-                    if element:
-                        self.bot.find_element_in_parent(
-                            parent_control_type="Window",
-                            child_control_type="Button", 
-                            parent_name="Microtelecom",
-                            child_name="OK", 
-                            action="click")
-                    else:
-                        send_keys('{ESC}')
+                    wait(1)
+                    send_keys('{ESC}')
 
             self.bot.find_element(automation_id="cmdUpdate", control_type="Button", action="click")
+            logger.info(f"MTPOS material code {material_code} added successfully. Proceeding to next matcode.")
 
             #Update Google Sheet with "Success"
-            result = self.gs.find_row_index(self.data, identifier_column, material_code)
-            if result:
-                row_index = result["row_index"]
-                self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Definition Remarks - {app_name}", "Success")
-                logger.info(f"Updated GSheet row {row_index} with Success status")
+            #result = self.gs.find_row_index(self.data, identifier_column, material_code)
+            if self.result_index:
+                #row_index = result["row_index"]
+                self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index, f"RPA Definition Remarks - {app_name}", "Success")
+                logger.info(f"Updated GSheet row {self.result_index} with Success status")
             else:
                 logger.warning(f"Material code {material_code} not found in filtered data for GSheet update")
 
@@ -229,12 +236,12 @@ class MtposInventory:
 
             # Try marking as Failed if not already done
             try:
-                result = self.gs.find_row_index(self.data, identifier_column, material_code)
-                if result:
-                    row_index = result["row_index"]
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Definition Remarks - {app_name}", "Failed")
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
-                    logger.info(f"Updated GSheet row {row_index} with Failed status")
+                #result = self.gs.find_row_index(self.data, identifier_column, material_code)
+                if self.result_index:
+                    #row_index = result["row_index"]
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index, f"RPA Definition Remarks - {app_name}", "Failed")
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
+                    logger.info(f"Updated GSheet row {self.result_index} with Failed status")
             except Exception as sheet_update_error:
                 logger.error(f"Failed to update GSheet for {material_code}: {sheet_update_error}")
 
@@ -246,28 +253,30 @@ class MtposInventory:
         material_code = row.get("Material Code")
         retail_price = row.get("Retail Price")
         description = row.get("Material Description")
-        identifier_column = mtpos.MATERIAL_CODE
+        deploymen_date=row.get("Deployment Date")
+        procedure_column=row.get("Procedure")
 
         
 
         try:
             logger.info(f"Searching MTPOS Material code {material_code}")
 
+            
+            conditions = {
+                "Material Code": material_code,
+                "Material Description": description,
+                "Deployment Date": deploymen_date,
+                "Procedure": procedure_column,
+            }
+            self.result_index_update = self.gs.find_row_index_multi(self.data, conditions)
+
+            logger.info(f"Index {self.result_index_update} material code {material_code} procedure {procedure_column} delopyment date {deploymen_date}")
+
              #Add item
-            parent_element = self.bot.wait_until_element_present(automation_id="Frame1", control_type="Pane", retries=3, single_attempt_timeout=60, retry_interval=0)
-            #self.bot.find_element(name="Catalog Def", control_type="TabItem", action="click")
-            element = self.bot.wait_until_element_present(name="Microtelecom", control_type="Window", retries=1, single_attempt_timeout=2, retry_interval=0)
-
-            if element:
-                self.bot.find_element_in_parent(
-                    parent_control_type="Window",
-                    child_control_type="Button", 
-                    parent_name="Microtelecom",
-                    child_name="OK", 
-                    action="click")
-            else:
-                send_keys('{ESC}')
-
+            parent_element = self.bot.wait_until_element_present(automation_id="Frame1", control_type="Pane", retries=6, single_attempt_timeout=30, retry_interval=1)
+            self.bot.find_element(name="Catalog Def", control_type="TabItem", action="click")
+            send_keys('{ESC}')
+            
             # Search for item
             if not self.all_items:
                 self.bot.find_element_in_parent(
@@ -304,7 +313,9 @@ class MtposInventory:
                             child_name="Row 1",
                             action="find",
                             element = parent_element,
-                            search_descendants = True 
+                            search_descendants = True,
+                            timeout = 5,
+                            interval = 1 
                         )
 
             #element = self.bot.wait_until_element_present(name="Row 1", control_type="Custom", retries=3, single_attempt_timeout=60, retry_interval=0)
@@ -312,12 +323,13 @@ class MtposInventory:
                 logger.warning(f"MTPOS Material code {material_code} not found in UI")
 
                 # Step 2: Update Google Sheet with "Failed"
-                result = self.gs.find_row_index(self.data, identifier_column, material_code)
-                if result:
-                    row_index = result["row_index"]
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Definition Remarks - {app_name}", "Failed")
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
-                    logger.info(f"Updated GSheet row {row_index} with Failed status")
+                #result = self.gs.find_row_index(self.data, identifier_column, material_code)
+                if self.result_index_update:
+                    #row_index = result["row_index"]
+
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index_update, f"RPA Definition Remarks - {app_name}", "Failed")
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index_update, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
+                    logger.info(f"Updated GSheet row {self.result_index_update} with Failed status")
                 else:
                     logger.warning(f"Material code {material_code} not found in filtered data for GSheet update")
 
@@ -327,7 +339,7 @@ class MtposInventory:
             logger.info(f"MTPOS Material code {material_code} found; editing MSRP and Retail Price")
 
             #Edit item
-            parent_element_edit = self.bot.wait_until_element_present(automation_id="PanelRight", control_type="Pane", retries=3, single_attempt_timeout=60, retry_interval=0)
+            parent_element_edit = self.bot.wait_until_element_present(automation_id="PanelRight", control_type="Pane", retries=6, single_attempt_timeout=30, retry_interval=1)
 
             self.bot.find_element_in_parent(
                             child_control_type="Button",
@@ -336,16 +348,17 @@ class MtposInventory:
                             element = parent_element_edit,
                             search_descendants = True 
                         )
-            
+            send_keys('{ESC}')
             #self.bot.find_element(automation_id="cmdEdit", control_type="Button", action="click")
+            parent_element_update=self.bot.find_element_in_parent(
+                child_control_type="Pane",
+                child_automation_id="_DataFrame_0",
+                action="find",
+                element = parent_element_edit,
+                search_descendants = True 
+            )
             if procedure == "update-srp":
-                parent_element_update=self.bot.find_element_in_parent(
-                            child_control_type="Pane",
-                            child_automation_id="_DataFrame_0",
-                            action="find",
-                            element = parent_element_edit,
-                            search_descendants = True 
-                        )
+
                 #self.bot.wait_until_element_present(automation_id="FaceValue", control_type="Edit")
 
                 self.bot.find_element(variable=retail_price, control_type="Edit", element=parent_element_update, automation_id="FaceValue", action="sendkeys")
@@ -375,11 +388,12 @@ class MtposInventory:
             logger.info(f"MTPOS Material code {material_code} successfully updated")
 
             #Update Google Sheet with "Success"
-            result = self.gs.find_row_index(self.data, identifier_column, material_code)
-            if result:
-                row_index = result["row_index"]
-                self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Definition Remarks - {app_name}", "Success")
-                logger.info(f"Updated GSheet row {row_index} with Success status")
+            #result = self.gs.find_row_index(self.data, identifier_column, material_code)
+            if self.result_index_update:
+               # row_index = result["row_index"]
+
+                self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index_update, f"RPA Definition Remarks - {app_name}", "Success")
+                logger.info(f"Updated GSheet row {self.result_index_update} with Success status")
             else:
                 logger.warning(f"Material code {material_code} not found in filtered data for GSheet update")
 
@@ -388,12 +402,13 @@ class MtposInventory:
 
             # Try marking as Failed if not already done
             try:
-                result = self.gs.find_row_index(self.data, identifier_column, material_code)
-                if result:
-                    row_index = result["row_index"]
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Definition Remarks - {app_name}", "Failed")
-                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
-                    logger.info(f"Updated GSheet row {row_index} with Failed status")
+                #result = self.gs.find_row_index(self.data, identifier_column, material_code)
+                if self.result_index_update:
+                    #row_index = result["row_index"]
+
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index_update, f"RPA Definition Remarks - {app_name}", "Failed")
+                    self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, self.result_index_update, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
+                    logger.info(f"Updated GSheet row {self.result_index_update} with Failed status")
             except Exception as sheet_update_error:
                 logger.error(f"Failed to update GSheet for {material_code}: {sheet_update_error}")
 
@@ -405,6 +420,22 @@ class MtposInventory:
         username = creds_row["Username"]
         password = creds_row["Password"]
         identifier_column = mtpos.MATERIAL_CODE
+
+        sheet_tab_sor = mtpos.WORKSHEET_TAB_SOR 
+        data = self.gs.get_sheet_data(sheet_tab_sor)
+        data = data_strip(data)
+        today_date = utils.helpers.get_datetime("date")
+
+        data_success = []
+
+        for row in data:
+            def_remarks = str(row.get(f"RPA Definition Remarks - {app_name}", "")).strip().lower()
+            deployment_date = str(row.get("Deployment Date", "")).strip()
+
+            if def_remarks == "success" and deployment_date == today_date:
+                data_success.append(row)
+
+        logger.info(f"Total successful definitions: {len(data_success)}")
 
         try:
             logger.info("Starting publish_to_all process")
@@ -430,16 +461,24 @@ class MtposInventory:
                 raise RuntimeError("Update Stores Inventory window not found.")
             
             logger.info(f"Switched to new window in {time.time() - t_start:.2f}s")
-
-           
-            self.bot.find_element(automation_id="SplitContainer1", control_type="Pane", action="find")
             
+
+            parent_element_publish = self.bot.wait_until_element_present(automation_id="SplitContainer1", control_type="Pane", retries=6, single_attempt_timeout=30, retry_interval=1)
+            #self.bot.find_element(automation_id="SplitContainer1", control_type="Pane", action="find")
+
             for auto_id in ("dtFromDate", "dtToDate"):
                 found = False
                 for attempt in range(1, 4):  # try 3 times
                     try:
                         t0 = time.time()
-                        pane = self.bot.find_element(automation_id=auto_id, control_type="Pane",action="find")
+                        pane=self.bot.find_element_in_parent(
+                            child_control_type="Pane",
+                            child_automation_id=auto_id,
+                            action="find",
+                            element = parent_element_publish,
+                            search_descendants = True
+                        )
+                        #pane = self.bot.find_element(automation_id=auto_id, control_type="Pane",action="find")
                         pane.set_focus()
                         send_keys('{SPACE}')
                         logger.info(f"Clicked {auto_id} in {time.time() - t0:.2f}s on attempt {attempt}")
@@ -449,147 +488,216 @@ class MtposInventory:
                         logger.warning(f"Attempt {attempt}: failed to find {auto_id}: {e}")
                         time.sleep(0.5)  # wait before retry
                 if not found:
-                    raise RuntimeError(f"Could not find date picker with auto_id={auto_id}")
-            logger.info("Update Stores Inventory window found and ready!")
+                    raise RuntimeError(f"Could not find date picker with auto_id={auto_id}")    
           
             # Click Search 
-            self.bot.find_element(automation_id="cmdSearch", control_type="Button", action="click")
+            self.bot.find_element_in_parent(
+                child_control_type="Button",
+                child_automation_id="cmdSearch",
+                action="click",
+                element = parent_element_publish,
+                search_descendants = True
+            )
+            #self.bot.find_element(automation_id="cmdSearch", control_type="Button", action="click")
 
             wait(3)
-
-            for row in filtered_sorted_data:
+            table= self.bot.find_element_in_parent(
+                child_control_type="Table",
+                child_automation_id="GCInv",
+                action="find",
+                element = parent_element_publish,
+                search_descendants = True
+            )
+            logger.info("Proceeding to select only defined matcodes")
+            for row in data_success:
                 matcode = row.get("Material Code")
                 desc = row.get("Material Description").strip()
 
-                # Step 1: type item code in filter
-                for action in [
-                    ("click"),
-                    ("send_type"),
-                ]:
-                    self.bot.find_element_in_parent(
-                    parent_control_type="Custom",
-                    child_control_type="DataItem", 
-                    parent_name="Filter Row",
-                    child_name="Item Code row -2147483646", 
-                    action=action,
-                    variable=matcode
-                    )
-
-                # Step 2: try find Select row 0
-                element = self.bot.find_element_in_parent(
-                    parent_control_type="Custom",
-                    child_control_type="DataItem", 
-                    parent_name="Row 1",
-                    child_name="Select row 0", 
-                    action="find"
+                custom_filter_row = self.bot.find_element_in_parent(
+                    child_control_type="Custom",
+                    child_name="Filter Row",
+                    action="find",
+                    element = table,
+                    search_descendants = True
                 )
 
-                if element:
-                    self.bot.find_element_in_parent(
-                    parent_control_type="Custom",
-                    child_control_type="DataItem", 
-                    parent_name="Row 1",
-                    child_name="Select row 0", 
-                    action="click"
-                    )
-
-                    # Item code exists, no need to type description
-                    # Clear filter row
-                    self.clear_all("Item Code row -2147483646")
-
-                    continue  # skip to next row
-
-                # Not found by Item Code → now add description filter to help find
-                # Double-click to clear item code filter
-                self.clear_all("Item Code row -2147483646")
-
-                # Type description
-                for action in [
-                    ("click"),
-                    ("send_type"),
-                ]:
-                    self.bot.find_element_in_parent(
-                    parent_control_type="Custom",
-                    child_control_type="DataItem", 
-                    parent_name="Filter Row",
-                    child_name="Description row -2147483646", 
-                    action=action,
-                    variable=desc
-                    )
-
-                # Step 3: click to confirm row
                 self.bot.find_element_in_parent(
-                    parent_control_type="Custom",
-                    child_control_type="DataItem", 
-                    parent_name="Row 1",
-                    child_name="Select row 0", 
-                    action="click"
+                        child_control_type="DataItem",
+                        child_name="Item Code row -2147483646",
+                        action=["click", "send_type"],
+                        element = custom_filter_row,
+                        search_descendants = True,
+                        variable = matcode
                 )
 
-                # Finally clear description filter
-                self.clear_all("Description row -2147483646")
+                target_item_value = self.bot.find_element_in_parent(
+                    child_control_type="Custom",
+                    child_name="Row 1",
+                    action="find",
+                    element = table,
+                    search_descendants = True,
+                    timeout=5,
+                    interval = 1
+                )
 
-            # Find ComboBox parent once
-            combo_start = time.time()
-            combo_parent = new_window.child_window(control_type="ComboBox", auto_id="cboHouse")
-            combo_parent.wait('exists ready', timeout=1)
-            logger.info(f"Found ComboBox parent in {time.time() - combo_start:.2f}s")
+                if target_item_value:
+                        
+                    self.bot.find_element_in_parent(
+                            child_control_type="DataItem",
+                            child_name="Select row 0",
+                            action="click",
+                            element = target_item_value
+        
+                        )
+                    
+                    self.clear_all("Item Code row -2147483646",custom_filter_row)
+                    continue
+                    
+                self.clear_all("Item Code row -2147483646", custom_filter_row)
+
+                self.bot.find_element_in_parent(
+                        child_control_type="DataItem",
+                        child_name="Description row -2147483646",
+                        action=["click", "send_type"],
+                        element = custom_filter_row,
+                        search_descendants = True,
+                        variable = desc
+                )
+
+                target_item_value_des = self.bot.find_element_in_parent(
+                    child_control_type="Custom",
+                    child_name="Row 1",
+                    action="find",
+                    element = table,
+                    search_descendants = True,
+                    timeout=5,
+                    interval = 1
+                )
+
+                if target_item_value_des:
+                        
+                    self.bot.find_element_in_parent(
+                            child_control_type="DataItem",
+                            child_name="Select row 0",
+                            action="click",
+                            element = target_item_value_des
+        
+                        )
+                    
+                    self.clear_all("Description row -2147483646",custom_filter_row)
+                    continue
+                    
+                self.clear_all("Description row -2147483646",custom_filter_row)
+                #self.bot.perform_action(target_item_value_click,"click")
+
+            right_panel= self.bot.find_element_in_parent(
+                child_control_type="Pane",
+                child_automation_id="Picture2",
+                action="find",
+                element = parent_element_publish,
+                search_descendants = True
+            )  
 
             # Click Open button and ALL ListItem inside ComboBox
             for name, child_control_type in [
                 ("Open", "Button"),
                 ("ALL", "ListItem")
             ]:
-                c_start = time.time()
-                child = combo_parent.child_window(control_type=child_control_type, title=name)
-                child.wait('exists ready', timeout=1)
-                child.click_input()
-                logger.info(f"Clicked '{name}' ({child_control_type}) in {time.time() - c_start:.2f}s")
+                self.bot.find_element_in_parent(
+                    child_control_type=child_control_type,
+                    child_name=name,
+                    action="click",
+                    element = right_panel,
+                    search_descendants = True
+                )
+
+            logger.info("Selected 'ALL' from Market dropdown")
 
             # Click Select All Locations and Copy Inventory
             for auto_id, control_type in [
                 ("ckSelectAllLocations", "CheckBox"),
                 ("cmdCopyInventory", "Button")
             ]:
-                self.bot.find_element(automation_id=auto_id, control_type=control_type, action="click")
+                self.bot.find_element_in_parent(
+                    child_control_type=control_type,
+                    child_automation_id=auto_id,
+                    action="click",
+                    element = right_panel,
+                    search_descendants = True
+                )
+                #self.bot.find_element(automation_id=auto_id, control_type=control_type, action="click")
             logger.info("Clicked Select All Locations & Copy Inventory")
 
             # Handle user verification popup quickly
-            pass_check = self.bot.find_element(automation_id="frmPassCheck", control_type="Window", action="find")
+            pass_check = self.bot.wait_until_element_present(automation_id="frmPassCheck", control_type="Window", retries=6, single_attempt_timeout=30, retry_interval=1)
+            #pass_check = self.bot.find_element(automation_id="frmPassCheck", control_type="Window", action="find")
             if pass_check:
                 logger.info("Found user verification prompt")
-                self.bot.find_element(variable=username, automation_id="txtUID", control_type="Edit", action="sendkeys")
-                self.bot.find_element(variable=password, automation_id="PassTxt", control_type="Edit", action="send_type")
-                self.bot.find_element(name="C&ontinue", control_type="Button", action="click")
+
+                for variable , auto_id in [
+                    (username,"txtUID"),
+                    (password,"PassTxt")
+
+                ]:
+                    self.bot.find_element_in_parent(
+                        child_control_type="Edit",
+                        child_automation_id=auto_id,
+                        action="sendkeys",
+                        element = pass_check,
+                        variable=variable,
+                        search_descendants = True
+                    )
+                #self.bot.find_element(variable=username, automation_id="txtUID", control_type="Edit", action="sendkeys")
+                #self.bot.find_element(variable=password, automation_id="PassTxt", control_type="Edit", action="send_type")
+                self.bot.find_element_in_parent(
+                        child_control_type="Button",
+                        child_name="C&ontinue",
+                        action="click",
+                        element = pass_check,
+                        search_descendants = True
+                )
+                #self.bot.find_element(name="C&ontinue", control_type="Button", action="click")
             else:
                 logger.error("User verification window not found. Failed to publish.")
                 raise RuntimeError("User verification window not found")
 
             # Confirm No Items Selected → Yes
-            self.bot.find_element(name="Yes", control_type="Button", action="click")
-            logger.info("Clicked confirmation Yes")
+            confirmation = self.bot.wait_until_element_present(name="No Items Selected", control_type="Window", retries=6, single_attempt_timeout=30, retry_interval=1)
+
+            if confirmation:
+                confirmation.set_focus()
+                send_keys('{ENTER}')
+                #self.bot.find_element(name="Yes", control_type="Button", action="click",element = confirmation)
+                logger.info("Clicked confirmation Yes")
+            
+            else:
+                logger.error("Confirmation window not found. Failed to publish.")
+                raise RuntimeError("Confirmation not found")
 
             # Wait for export result
-            if self.bot.wait_until_element_present(name="Microtelecom", control_type="Window", retries=30, single_attempt_timeout=60, retry_interval=0):
-                self.bot.find_element(name="OK", control_type="Button", action="click")
+            export_res= self.bot.wait_until_element_present(name="Microtelecom", control_type="Window", retries=20, single_attempt_timeout=30, retry_interval=1)
+            if export_res:
+                export_res.set_focus()
+                send_keys('{ENTER}')
+                #self.bot.find_element(name="OK", control_type="Button", action="click",element = export_res)
                 logger.info("Export completed successfully")
 
-                # Update GSheet: mark Published for items with empty remark
-                for row in filtered_sorted_data:
+                for row in data_success:
                     material_code = row.get("Material Code")
                     try:
                         result = self.gs.find_row_index(self.data, identifier_column, material_code)
                         if result:
                             row_index = result["row_index"]
-                            row_data = self.gs.get_row(mtpos.WORKSHEET_TAB_SOR, row_index)
-                            latest_remark = row_data.get(f"RPA Deployment Remarks - {app_name}")
 
-                            if not latest_remark:
-                                self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index,
-                                    f"RPA Deployment Remarks - {app_name}", "Published")
-                                logger.info(f"Marked Material Code {material_code} as Published")
-                            else:
-                                logger.info(f"Skipped {material_code}, already has remark '{latest_remark}'")
+                            self.pending_updates.append((
+                                mtpos.WORKSHEET_TAB_SOR,   
+                                row_index,
+                                f"RPA Deployment Remarks - {app_name}",
+                                "Published"
+                            ))
+                            #self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Deployment Remarks - {app_name}", "Published")
+                            #logger.info(f"Marked Material Code {material_code} as Published")
+                          
                         else:
                             logger.warning(f"Material Code {material_code} not found in GSheet")
                     except Exception as e:
@@ -610,15 +718,16 @@ class MtposInventory:
                     result = self.gs.find_row_index(self.data, identifier_column, material_code)
                     if result:
                         row_index = result["row_index"]
-                        row_data = self.gs.get_row(mtpos.WORKSHEET_TAB_SOR, row_index)
-                        latest_remark = row_data.get(f"RPA Deployment Remarks - {app_name}")
-
-                        if not latest_remark:
-                            self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index,
-                                f"RPA Deployment Remarks - {app_name}", "Publish Failed")
-                            logger.info(f"Marked Material Code {material_code} as Publish Failed")
-                        else:
-                            logger.info(f"Skipped {material_code}, already has remark '{latest_remark}'")
+                        
+                        self.pending_updates.append((
+                            mtpos.WORKSHEET_TAB_SOR,   
+                            row_index,
+                            f"RPA Deployment Remarks - {app_name}",
+                            "Publish Failed"
+                        ))
+                        #self.gs.update_cell(mtpos.WORKSHEET_TAB_SOR, row_index, f"RPA Deployment Remarks - {app_name}", "Publish Failed")
+                        logger.info(f"Marked Material Code {material_code} as Publish Failed")
+                      
                     else:
                         logger.warning(f"Material Code {material_code} not found in GSheet")
                 except Exception as e2:
@@ -626,13 +735,12 @@ class MtposInventory:
 
             raise
 
-    def clear_all(self,child_name):
+    def clear_all(self,child_name,custom_filter_row):
         self.bot.find_element_in_parent(
-        parent_control_type="Custom",
         child_control_type="DataItem", 
-        parent_name="Filter Row",
         child_name=child_name, 
-        action="double_click"
+        action="double_click",
+        element = custom_filter_row
         )
         wait(0.3)
         send_keys('^+a{BACKSPACE}')

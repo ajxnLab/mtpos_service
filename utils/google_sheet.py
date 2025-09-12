@@ -89,6 +89,35 @@ class GSheetClient:
             if all(str(row.get(k)).strip() == str(v).strip() for k, v in conditions.items()):
                 return idx + 1
         return -1
+    
+    def flush_updates(self,worksheet_name: str, updates):
+        """
+        Group updates per worksheet and send in batch.
+        updates = list of (sheet_name, row_index, col_name, value)
+        """
+        grouped = {}
+        for sheet_name, row, col_name, value in updates:
+            grouped.setdefault(sheet_name, []).append((row, col_name, value))
+
+        for sheet_name, sheet_updates in grouped.items():
+            worksheet = self.sheet.worksheet(worksheet_name)
+            header = worksheet.row_values(1)
+            col_map = {name: idx+1 for idx, name in enumerate(header)}
+
+            data = []
+            for row, col_name, value in sheet_updates:
+                col = col_map.get(col_name)
+                if not col:
+                    self.logger.warning(f"Column '{col_name}' not found in {worksheet_name}, skipping row {row}")
+                    continue
+                cell_a1 = gspread.utils.rowcol_to_a1(row, col)
+                data.append({"range": cell_a1, "values": [[value]]})
+                #self.logger.info(f"Updated GSheet row {row} with '{value}' in column '{col_name}'")
+
+            if data:
+                worksheet.batch_update(data)
+                self.logger.debug(f"Batch updated {len(data)} cells in worksheet '{worksheet_name}'")
+
 
 
     def authenticate_google_drive(self):

@@ -14,6 +14,7 @@ if __name__ == "__main__":
         publish = "publish"
     else:
         variable = None
+        publish = None
 
 
     load_environment(variable)

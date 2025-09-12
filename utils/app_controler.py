@@ -1,5 +1,5 @@
 from pywinauto import Application
-import re
+from pywinauto import Desktop
 import time
 from pywinauto.controls.uiawrapper import UIAWrapper
 from pywinauto.keyboard import send_keys
@@ -32,7 +32,7 @@ class AppAutomation:
             else:
                 raise ValueError("Must provide title, title_re, or auto_id")
 
-            logger.info(f"Found window: title={title or title_re}, auto_id={auto_id}")
+            #logger.info(f"Found window: title={title or title_re}, auto_id={auto_id}")
             return window
 
         except Exception as e:
@@ -65,6 +65,7 @@ class AppAutomation:
             parent = element if element else self.main_window
 
             if isinstance(parent, UIAWrapper):
+                # reuse its element_info to make a new spec
                 parent = self.app.window(handle=parent.handle)
 
             element_spec = parent.child_window(**criteria)
@@ -73,7 +74,7 @@ class AppAutomation:
                 
                 # Perform optional action
                 result = self.perform_action(element=element_spec, variable=variable, action=action)
-                logger.info(f"Found element {result}")
+                #logger.info(f"Found element {result}")
                 # Return what perform_action returned if any, else the element itself
                 return result if result is not None else element_spec
             else:
@@ -86,10 +87,12 @@ class AppAutomation:
 
 
     def wait_until_element_present(self, control_type: str, automation_id: str = None, name: str = None,
-                                retries: int = 3, single_attempt_timeout: int = 1, retry_interval: int = 1):
+                                retries: int = 3, single_attempt_timeout: int = 1, retry_interval: int = 1,
+                                top_level: bool = False):
         """
-        Try up to `retries` times to find a visible element matching the criteria.
-        Each attempt can wait up to `single_attempt_timeout` seconds.
+        Wait until an element is present.
+        - If top_level=True: searches all top-level windows (like popup dialogs).
+        - Else: searches only inside self.main_window.
         """
         criteria = {"control_type": control_type}
         if automation_id:
@@ -99,10 +102,16 @@ class AppAutomation:
 
         for attempt in range(1, retries + 1):
             try:
-                element = self.main_window.child_window(**criteria)
-                element.wait('visible', timeout=single_attempt_timeout)
-                logger.info(f"Found element on attempt {attempt}")
+                if top_level:
+                    # Search among all top-level windows
+                    element = Desktop(backend="uia").window(**criteria)
+                else:
+                    # Search inside the current main window
+                    element = self.main_window.child_window(**criteria)
+
+                element.wait("visible", timeout=single_attempt_timeout)
                 return element
+
             except Exception as e:
                 logger.debug(f"Attempt {attempt} failed: {e}")
                 if attempt < retries:
@@ -122,7 +131,7 @@ class AppAutomation:
                 for elem in elements:
                     name = elem.window_text()
                     if name.startswith(partial_name):
-                        logger.info(f"Found element starting with '{partial_name}': {name}")
+                        #logger.info(f"Found element starting with '{partial_name}': {name}")
                         return elem
             except Exception as e:
                 logger.error(f"Error while searching for element: {e}")
@@ -166,21 +175,23 @@ class AppAutomation:
                 raise RuntimeError(f"No element found (type={control_type}, id={automation_id}, name={name})")
 
             # Log multiple matches
-            if len(candidates) > 1:
+            """ if len(candidates) > 1:
                 logger.warning(f"Multiple elements found ({len(candidates)}) for control_type={control_type}")
                 for i, c in enumerate(candidates):
                     logger.warning(f" Index {i}: type={c.element_info.control_type}, "
                                 f"name='{c.window_text()}', "
-                                f"auto_id='{getattr(c.element_info, 'automation_id', '')}'")
+                                f"auto_id='{getattr(c.element_info, 'automation_id', '')}'") """
 
             # Pick by index
             index = found_index if found_index is not None and 0 <= found_index < len(candidates) else 0
             element = candidates[index]
 
             if found_index is not None:
-                logger.info(f"Using element at index {index}")
+                #logger.info(f"Using element at index {index}")
+                pass
             elif len(candidates) > 1:
-                logger.info("No found_index specified, defaulting to index 0")
+                pass
+                #logger.info("No found_index specified, defaulting to index 0")
 
             #Only call wait() if it's a WindowSpecification
             if isinstance(element, WindowSpecification):
@@ -257,7 +268,7 @@ class AppAutomation:
                         if visible_only and getattr(elem.element_info, "is_offscreen", True):
                             continue
 
-                        logger.info(f"Found child element: {elem.window_text()} ({getattr(elem.element_info, 'control_type', None)})")
+                        #logger.info(f"Found child element: {elem.window_text()} ({getattr(elem.element_info, 'control_type', None)})")
                         return self.perform_action(element=elem, variable=variable, action=action)
                     except Exception as e:
                         logger.warning(f"Skipping element due to error: {e}")
@@ -322,7 +333,7 @@ class AppAutomation:
             try:
                 element.set_focus()
                 send_keys(keys)
-                logger.info(f"Sent keys '{keys}' to element")
+                #logger.info(f"Sent keys '{keys}' to element")
             except Exception as e:
                 logger.error(f"Failed to send keys to element: {e}")
                 raise
@@ -330,7 +341,7 @@ class AppAutomation:
             try:
                 self.main_window.set_focus()
                 send_keys(keys)
-                logger.info(f"Sent keys '{keys}' to main window")
+                #logger.info(f"Sent keys '{keys}' to main window")
             except Exception as e:
                 logger.error(f"Failed to send keys to main window: {e}")
                 raise
